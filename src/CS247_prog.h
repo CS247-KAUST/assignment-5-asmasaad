@@ -85,7 +85,8 @@ int toggle_xy;
 ////////////////
 
 void drawGlyphs();
-
+void drawStreamlines();
+void drawPathlines();
 void computeStreamline(int x, int y);
 
 void computePathline(int x, int y, int t);
@@ -105,6 +106,36 @@ void reset_rendering_props( void );
 
 // TODO: define colormap variables
 // Hint: you need a colormap mode (off/rainbow/cool-warm) and a blend factor
+
+int colormap_mode;     
+float blend_factor;   
+
+
+GLuint glyph_vao;
+GLuint glyph_vbo;
+std::vector<float> glyph_vertices;    
+bool glyph_scaled_length;
+
+
+GLuint streamline_vao;
+GLuint streamline_vbo;
+bool use_rk2;
+
+struct Streamline {
+    int seed_x;                      
+    int seed_y;
+    std::vector<float> vertices;  
+};
+std::vector<Streamline> streamlines;
+
+GLuint pathline_vao;
+GLuint pathline_vbo;
+
+struct Pathline {
+    std::vector<float> vertices;   
+};
+std::vector<Pathline> pathlines;
+
 
 // make quad to load texture to
 VBOQuad quad;

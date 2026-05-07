@@ -69,6 +69,15 @@ void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods
                 if( num_timesteps > 1 ){
                     loadNextTimestep();
                     fprintf( stderr, "Timestep %d.\n", loaded_timestep );
+
+                    std::vector<Streamline> old_streamlines = streamlines;
+                    streamlines.clear();
+                    for (const Streamline& sl : old_streamlines) {
+                        computeStreamline(sl.seed_x, sl.seed_y);
+                    }
+                    fprintf(stderr, "recalculated streamlines for new timestep.\n");
+
+
                 }
                 break;
             case GLFW_KEY_A:
@@ -113,6 +122,40 @@ void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods
             //   - adjust blend factor (increase/decrease between 0.0 and 1.0)
             //   - toggle integration method (Euler/RK2)
             //   - clear all seeds
+
+
+            case GLFW_KEY_C:
+                colormap_mode = (colormap_mode + 1) % 3;
+                {
+                    const char* mode_names[] = { "off (grayscale)", "rainbow", "cool-warm" };
+                    fprintf(stderr, "choosen colormap mode: %s.\n", mode_names[colormap_mode]);
+                }
+                break;
+            case GLFW_KEY_RIGHT_BRACKET:
+                blend_factor = std::min(blend_factor + 0.1f, 1.0f);
+                fprintf(stderr, "Blend factor: %.2f\n", blend_factor);
+                break;
+            case GLFW_KEY_LEFT_BRACKET:
+                blend_factor = std::max(blend_factor - 0.1f, 0.0f);
+                fprintf(stderr, "Blend factor: %.2f\n", blend_factor);
+                break;
+
+            case GLFW_KEY_L:
+                glyph_scaled_length = !glyph_scaled_length;
+                fprintf(stderr, "Glyph length mode: %s.\n",
+                    glyph_scaled_length ? "scaled by magnitude" : "constant");
+                break;
+
+            case GLFW_KEY_R:
+                use_rk2 = !use_rk2;
+                fprintf(stderr, "Integration method: %s\n", use_rk2 ? "RK2" : "Euler");
+                break;
+            case GLFW_KEY_X:
+                streamlines.clear();
+                pathlines.clear(); 
+                fprintf(stderr, "Cleared all streamlines & pathlines.\n");
+                break;
+
             case GLFW_KEY_Q:
             case GLFW_KEY_ESCAPE:
                 exit( 0 );
@@ -129,6 +172,12 @@ void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods
                                  "p, en-/disable pathlines.\n"
                                  "+, increase sampling rate.\n"
                                  "-, decrease sampling rate.\n"
+                                 "c, colormap mode : grayscale , rainbow , or cool-warm \n"
+                                 "[ increase bkend factor  \n"
+                                 "] decrease bkend factor  \n"
+                                 "l, Glyph length mode:  scaled by magnitude or constant \n"
+                                 "r: Integration method:  RK2 or  Euler \n "
+                                 "x, clear all streamlines.\n"
                                  "i, increase dt.\n"
                                  "k, decrease dt.\n"
                                  "q, <esc> - Quit\n",
@@ -149,6 +198,31 @@ void mouseButtonCallback(GLFWwindow* window, int button, int action, int mods)
         // TODO: seed streamlines & pathlines using mouse clicks
         // Hint: convert screen coords to grid coords (y-flip needed),
         //       then call computeStreamline/computePathline when enabled
+
+        if (!grid_data_loaded) 
+            return;
+
+        int win_w, win_h;
+        glfwGetWindowSize(window, &win_w, &win_h);
+
+        int grid_x = (int)((xpos / (double)win_w) * (double)(vol_dim[0] - 1));
+        int grid_y = (int)(((win_h - ypos) / (double)win_h) * (double)(vol_dim[1] - 1));
+
+        if (grid_x < 0 || grid_x >= vol_dim[0] ||
+            grid_y < 0 || grid_y >= vol_dim[1]) 
+            return;
+
+        fprintf(stderr, "Click at pixel (%d, %d) -> grid (%d, %d)\n",
+            (int)xpos, (int)ypos, grid_x, grid_y);
+
+        if (en_streamline) {
+            computeStreamline(grid_x, grid_y);
+        }
+
+        if (en_pathline) {
+            computePathline(grid_x, grid_y, loaded_timestep);
+        }
+
     }
 }
 
@@ -453,6 +527,10 @@ bool initApplication(int argc, char **argv)
 void reset_rendering_props( void )
 {
     num_scalar_fields = 0;
+    streamlines.clear();
+    pathlines.clear();
+
+
 }
 
 // set up the scene
@@ -473,6 +551,46 @@ void setup() {
     quad.init();
 
     // TODO: glyph/streamlines/pathlines VAO and VBO
+
+    glGenVertexArrays(1, &glyph_vao);
+    glGenBuffers(1, &glyph_vbo);
+
+    glBindVertexArray(glyph_vao);
+    glBindBuffer(GL_ARRAY_BUFFER, glyph_vbo);
+
+    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(float), (void*)0);
+    glEnableVertexAttribArray(0);
+
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+    glBindVertexArray(0);
+
+
+
+    glGenVertexArrays(1, &streamline_vao);
+    glGenBuffers(1, &streamline_vbo);
+
+    glBindVertexArray(streamline_vao);
+    glBindBuffer(GL_ARRAY_BUFFER, streamline_vbo);
+
+    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(float), (void*)0);
+    glEnableVertexAttribArray(0);
+
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+    glBindVertexArray(0);
+
+
+
+    glGenVertexArrays(1, &pathline_vao);
+    glGenBuffers(1, &pathline_vbo);
+
+    glBindVertexArray(pathline_vao);
+    glBindBuffer(GL_ARRAY_BUFFER, pathline_vbo);
+
+    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(float), (void*)0);
+    glEnableVertexAttribArray(0);
+
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+    glBindVertexArray(0);
 }
 
 // rendering
@@ -493,14 +611,31 @@ void render() {
     // TODO: pass colormap uniforms to shader before drawing the quad
     // Hint: set colormapMode and blendFactor uniforms here
 
+    vectorProgram.setUniform("colormapMode", colormap_mode);
+    vectorProgram.setUniform("blendFactor", blend_factor);
     quad.render();
     glDisable( GL_TEXTURE_2D );
 
     // TODO: reset colormap mode to 0 before drawing overlays
     // so that glyphs/streamlines/pathlines use solid colors
-
+    vectorProgram.setUniform("colormapMode", 0);
     // TODO: draw glyphs, streamlines, pathlines
 
+
+
+    if (en_arrow) {
+        drawGlyphs();
+    }
+
+
+    if (en_streamline) {
+        drawStreamlines();
+    }
+    
+    if (en_pathline) {
+        drawPathlines();
+    }
+    
 }
 
 // entry point
@@ -528,6 +663,14 @@ int main(int argc, char** argv)
     current_scalar_field = 0;
     clearColor = 0;
 
+    colormap_mode = 0;
+    blend_factor = 1.0f;
+
+
+    glyph_scaled_length = false;
+
+
+    use_rk2 = true;    
 
     filenames[ 0 ] = "../../../data/block/c_block";
     filenames[ 1 ] = "../../../data/tube/tube";
@@ -603,27 +746,423 @@ int main(int argc, char** argv)
 // TODO: define any useful functions you might need.
 //  e.g., indexing, linear interpolation ..etc
 
+glm::vec2 getVector(int gi, int gj) {
+    int W = vol_dim[0];
+    int H = vol_dim[1];
+
+    if (gi < 0 || gi >= W || gj < 0 || gj >= H) {
+        return glm::vec2(0.0f, 0.0f);
+    }
+
+    int idx = (loaded_timestep * data_size + gj * W + gi) * 3;
+    return glm::vec2(vector_array[idx], vector_array[idx + 1]);
+}
+
+glm::vec2 sampleBilinear(float x, float y) {
+    int i = (int)std::floor(x);
+    int j = (int)std::floor(y);
+
+    float fx = x - (float)i;
+    float fy = y - (float)j;
+
+    glm::vec2 v00 = getVector(i, j);
+    glm::vec2 v10 = getVector(i + 1, j);
+    glm::vec2 v01 = getVector(i, j + 1);
+    glm::vec2 v11 = getVector(i + 1, j + 1);
+
+    glm::vec2 bottom = (1.0f - fx) * v00 + fx * v10;
+    glm::vec2 top = (1.0f - fx) * v01 + fx * v11;
+
+    return (1.0f - fy) * bottom + fy * top;
+}
+
+
+
+glm::vec2 streamlineStep(glm::vec2 p, float direction) {
+    glm::vec2 v1 = sampleBilinear(p.x, p.y);
+
+    if (!use_rk2) {
+        return p + direction * (float)dt * v1;
+    }
+    else {
+        glm::vec2 mid = p + direction * (float)dt * 0.5f * v1;
+        glm::vec2 v2 = sampleBilinear(mid.x, mid.y);
+        return p + direction * (float)dt * v2;
+    }
+}
+
+std::vector<glm::vec2> integrateOneSide(glm::vec2 seed, float direction) {
+    std::vector<glm::vec2> path;
+    path.push_back(seed);
+
+    glm::vec2 p = seed;
+    float acc_len = 0.0f;
+    const float MAX_LEN = 500.0f;
+    const float EPS = 1e-5f;
+    const int MAX_STEPS = 5000;
+
+    for (int i = 0; i < MAX_STEPS; ++i) {
+
+        glm::vec2 v_here = sampleBilinear(p.x, p.y);
+        if (glm::length(v_here) < EPS) 
+            break;
+
+        glm::vec2 next = streamlineStep(p, direction);
+
+        if (next.x < 0 || next.x >= vol_dim[0] - 1 
+            ||
+            next.y < 0 || next.y >= vol_dim[1] - 1) 
+            
+            break;
+
+        acc_len += glm::length(next - p);
+        if (acc_len > MAX_LEN) 
+            break;
+
+        p = next;
+        path.push_back(p);
+    }
+
+    return path;
+}
+
 
 void computeStreamline(int x, int y)
 {
-    // TODO: compute streamlines starting from x,y position. enable switching between euler and runge kutta
-    // Hint: implement bilinear interpolation of vectors, forward+backward integration,
-    //       and stopping conditions (boundary, zero vector, max accumulated length)
+// TODO: compute streamlines starting from x,y position. enable switching between euler and runge kutta
+// Hint: implement bilinear interpolation of vectors, forward+backward integration,
+//       and stopping conditions (boundary, zero vector, max accumulated length)
 
-    // TODO: set any useful uniforms & update VBO & draw
+// TODO: set any useful uniforms & update VBO & draw
+    if (!grid_data_loaded) 
+        return;
+
+    glm::vec2 seed((float)x, (float)y);
+
+    std::vector<glm::vec2> backward = integrateOneSide(seed, -1.0f);
+    std::vector<glm::vec2> forward = integrateOneSide(seed, +1.0f);
+
+    Streamline sl;
+    sl.seed_x = x;
+    sl.seed_y = y;
+
+    int W = vol_dim[0];
+    int H = vol_dim[1];
+
+    auto pushNDC = [&](glm::vec2 p) {
+        float nx = (p.x / (float)(W - 1)) * 2.0f - 1.0f;
+        float ny = (p.y / (float)(H - 1)) * 2.0f - 1.0f;
+        sl.vertices.push_back(nx);
+        sl.vertices.push_back(ny);
+        };
+
+    for (auto it = backward.rbegin(); it != backward.rend(); ++it) {
+        pushNDC(*it);
+    }
+    for (size_t i = 1; i < forward.size(); ++i) {
+        pushNDC(forward[i]);
+    }
+
+    if (sl.vertices.size() >= 4) {  
+        streamlines.push_back(sl);
+    }
 }
+
+
+
+void drawStreamlines() {
+    if (streamlines.empty()) return;
+
+    vectorProgram.use();
+    vectorProgram.setUniform("model", glm::mat4(1.0f));
+    vectorProgram.setUniform("vertexColor", glm::vec4(1.0f, 1.0f, 0.0f, 1.0f)); 
+    vectorProgram.setUniform("colormapMode", 0);  
+
+    glBindVertexArray(streamline_vao);
+    glBindBuffer(GL_ARRAY_BUFFER, streamline_vbo);
+
+    for (const Streamline& sl : streamlines) {
+        if (sl.vertices.size() < 4) 
+            continue;
+
+        glBufferData(GL_ARRAY_BUFFER,
+            sl.vertices.size() * sizeof(float),
+            sl.vertices.data(),
+            GL_DYNAMIC_DRAW);
+
+        glDrawArrays(GL_LINE_STRIP, 0, (GLsizei)(sl.vertices.size() / 2));
+    }
+
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+    glBindVertexArray(0);
+}
+
+
+glm::vec2 sampleBilinearAtTime(float x, float y, int t) {
+    int i = (int)std::floor(x);
+    int j = (int)std::floor(y);
+
+    float fx = x - (float)i;
+    float fy = y - (float)j;
+
+    int W = vol_dim[0];
+    int H = vol_dim[1];
+
+
+    auto getAt = [&](int gi, int gj) {
+        if (gi < 0 || gi >= W || gj < 0 || gj >= H) 
+            return glm::vec2(0.0f, 0.0f);
+        int idx = (t * data_size + gj * W + gi) * 3;
+        return glm::vec2(vector_array[idx], vector_array[idx + 1]);
+        };
+
+    glm::vec2 v00 = getAt(i, j);
+    glm::vec2 v10 = getAt(i + 1, j);
+    glm::vec2 v01 = getAt(i, j + 1);
+    glm::vec2 v11 = getAt(i + 1, j + 1);
+
+    glm::vec2 bottom = (1.0f - fx) * v00 + fx * v10;
+    glm::vec2 top = (1.0f - fx) * v01 + fx * v11;
+    return (1.0f - fy) * bottom + fy * top;
+}
+
+
+glm::vec2 sampleTrilinear(float x, float y, float t) {
+    int t0 = (int)std::floor(t);
+    int t1 = t0 + 1;
+
+    if (t0 < 0 || t1 >= num_timesteps) {
+        return glm::vec2(0.0f, 0.0f);
+    }
+
+    float ft = t - (float)t0;
+
+    glm::vec2 v_t0 = sampleBilinearAtTime(x, y, t0);
+    glm::vec2 v_t1 = sampleBilinearAtTime(x, y, t1);
+
+    return (1.0f - ft) * v_t0 + ft * v_t1;
+}
+
+
+
+glm::vec2 pathlineStep(glm::vec2 p, float t, float direction) {
+    glm::vec2 v1 = sampleTrilinear(p.x, p.y, t);
+
+    if (!use_rk2) {
+        return p + direction * (float)dt * v1;
+    }
+    else {
+
+        glm::vec2 mid_p = p + direction * (float)dt * 0.5f * v1;
+        float mid_t = t + direction * (float)dt * 0.5f;
+        glm::vec2 v2 = sampleTrilinear(mid_p.x, mid_p.y, mid_t);
+        return p + direction * (float)dt * v2;
+    }
+}
+
+
+std::vector<glm::vec2> integrateOnePathSide(glm::vec2 seed, float t_start, float direction) {
+    std::vector<glm::vec2> path;
+    path.push_back(seed);
+
+    glm::vec2 p = seed;
+    float t = t_start;
+    float acc_len = 0.0f;
+    const float MAX_LEN = 500.0f;
+    const float EPS = 1e-5f;
+    const int MAX_STEPS = 5000;
+
+    for (int i = 0; i < MAX_STEPS; ++i) {
+ 
+        glm::vec2 v_here = sampleTrilinear(p.x, p.y, t);
+        if (glm::length(v_here) < EPS) 
+            break;
+
+    
+        glm::vec2 next = pathlineStep(p, t, direction);
+        float t_next = t + direction * (float)dt;
+
+        if (next.x < 0 || next.x >= vol_dim[0] - 1 ||
+            next.y < 0 || next.y >= vol_dim[1] - 1) 
+            break;
+
+        if (t_next < 0 || t_next >= (float)(num_timesteps - 1)) 
+            break;
+
+        acc_len += glm::length(next - p);
+        if (acc_len > MAX_LEN) 
+            break;
+
+        p = next;
+        t = t_next;
+        path.push_back(p);
+    }
+
+    return path;
+}
+
+
+void drawPathlines() {
+    if (pathlines.empty()) 
+        return;
+
+    vectorProgram.use();
+    vectorProgram.setUniform("model", glm::mat4(1.0f));
+    vectorProgram.setUniform("vertexColor", glm::vec4(0.0f, 1.0f, 1.0f, 1.0f)); 
+    vectorProgram.setUniform("colormapMode", 0);
+
+    glBindVertexArray(pathline_vao);
+    glBindBuffer(GL_ARRAY_BUFFER, pathline_vbo);
+
+    for (const Pathline& pl : pathlines) {
+        if (pl.vertices.size() < 4) 
+            continue;
+
+        glBufferData(GL_ARRAY_BUFFER,
+            pl.vertices.size() * sizeof(float),
+            pl.vertices.data(),
+            GL_DYNAMIC_DRAW);
+
+        glDrawArrays(GL_LINE_STRIP, 0, (GLsizei)(pl.vertices.size() / 2));
+    }
+
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+    glBindVertexArray(0);
+}
+
 
 void computePathline(int x, int y, int t)
 {
     // TODO: compute pathlines starting from x,y position and time step t. enable switching between euler and runge kutta
     // Hint: implement trilinear interpolation (bilinear in space + linear in time),
     //       forward+backward integration advancing in both space and time
-
+     
     // TODO: set any useful uniforms & update VBO & draw
+
+
+
+    if (!grid_data_loaded) 
+        return;
+    if (num_timesteps <= 1) {
+        return;
+    }
+
+    glm::vec2 seed((float)x, (float)y);
+    float t_start = (float)t;
+
+
+    std::vector<glm::vec2> backward = integrateOnePathSide(seed, t_start, -1.0f);
+    std::vector<glm::vec2> forward = integrateOnePathSide(seed, t_start, +1.0f);
+
+    Pathline pl;
+
+    int W = vol_dim[0];
+    int H = vol_dim[1];
+
+
+    auto pushNDC = [&](glm::vec2 p) {
+        float nx = (p.x / (float)(W - 1)) * 2.0f - 1.0f;
+        float ny = (p.y / (float)(H - 1)) * 2.0f - 1.0f;
+        pl.vertices.push_back(nx);
+        pl.vertices.push_back(ny);
+        };
+
+    for (auto it = backward.rbegin(); it != backward.rend(); ++it) {
+        pushNDC(*it);
+    }
+    for (size_t i = 1; i < forward.size(); ++i) {
+        pushNDC(forward[i]);
+    }
+
+    if (pl.vertices.size() >= 4) {
+        pathlines.push_back(pl);
+    }
 }
 
 void drawGlyphs() {
     // TODO: draw arrows/glyphs
     // Hint: iterate over grid with sampling_rate stride, compute arrow geometry
-    //       (shaft + arrowhead) in NDC, upload to VBO, draw with GL_LINES
+    // (shaft + arrowhead) in NDC, upload to VBO, draw with GL_LINES
+
+        if (!grid_data_loaded) 
+            return;
+
+        int W = vol_dim[0];
+        int H = vol_dim[1];
+
+
+        glyph_vertices.clear();
+
+        const float ARROW_LEN_CONST = 0.04f;   
+        const float ARROW_SCALE = 0.05f;   
+        const float HEAD_FRACTION = 0.3f;     
+        const float HEAD_ANGLE_DEG = 150.0f;  
+
+        const float head_angle_rad = HEAD_ANGLE_DEG * 3.14159265f / 180.0f;
+        const float cos_a = std::cos(head_angle_rad);
+        const float sin_a = std::sin(head_angle_rad);
+
+        for (int j = 0; j < H; j += sampling_rate) {
+            for (int i = 0; i < W; i += sampling_rate) {
+
+                int idx = (loaded_timestep * data_size + j * W + i) * 3;
+                float vx = vector_array[idx + 0];
+                float vy = vector_array[idx + 1];
+
+                float mag = std::sqrt(vx * vx + vy * vy);
+                if (mag < 1e-6f) 
+                    continue;   
+
+                float dx = vx / mag;
+                float dy = vy / mag;
+
+                float L = glyph_scaled_length ? mag * ARROW_SCALE : ARROW_LEN_CONST;
+
+                float px = (float(i) / float(W - 1)) * 2.0f - 1.0f;
+                float py = (float(j) / float(H - 1)) * 2.0f - 1.0f;
+
+                float tx = px + L * dx;
+                float ty = py + L * dy;
+
+                float head_len = L * HEAD_FRACTION;
+
+                float left_dx = cos_a * dx - sin_a * dy;
+                float left_dy = sin_a * dx + cos_a * dy;
+                float right_dx = cos_a * dx + sin_a * dy;
+                float right_dy = -sin_a * dx + cos_a * dy;
+
+                float lx = tx + head_len * left_dx;
+                float ly = ty + head_len * left_dy;
+                float rx = tx + head_len * right_dx;
+                float ry = ty + head_len * right_dy;
+
+
+                glyph_vertices.push_back(px); glyph_vertices.push_back(py);
+                glyph_vertices.push_back(tx); glyph_vertices.push_back(ty);
+
+                glyph_vertices.push_back(tx); glyph_vertices.push_back(ty);
+                glyph_vertices.push_back(lx); glyph_vertices.push_back(ly);
+
+                glyph_vertices.push_back(tx); glyph_vertices.push_back(ty);
+                glyph_vertices.push_back(rx); glyph_vertices.push_back(ry);
+            }
+        }
+
+        if (glyph_vertices.empty()) return;
+
+        glBindVertexArray(glyph_vao);
+        glBindBuffer(GL_ARRAY_BUFFER, glyph_vbo);
+        glBufferData(GL_ARRAY_BUFFER,
+            glyph_vertices.size() * sizeof(float),
+            glyph_vertices.data(),
+            GL_DYNAMIC_DRAW);
+
+        vectorProgram.setUniform("vertexColor", glm::vec4(0.0f, 0.0f, 1.0f, 1.0f));
+        vectorProgram.setUniform("model", glm::mat4(1.0f));
+
+        glDrawArrays(GL_LINES, 0, (GLsizei)(glyph_vertices.size() / 2));
+
+        glBindBuffer(GL_ARRAY_BUFFER, 0);
+        glBindVertexArray(0);
+   
 }
